@@ -48,7 +48,7 @@ func (q *Queries) CreateRecording(ctx context.Context, arg CreateRecordingParams
 }
 
 const createTask = `-- name: CreateTask :one
-INSERT INTO tasks (name, target_url, is_enabled, filename_template, custom_css, fps) VALUES (?, ?, 0, ?, ?, ?) RETURNING id, name, target_url, is_enabled, is_deleted, filename_template, custom_css, fps, created_at
+INSERT INTO tasks (name, target_url, is_enabled, filename_template, custom_css, fps, crf) VALUES (?, ?, 0, ?, ?, ?, ?) RETURNING id, name, target_url, is_enabled, is_deleted, filename_template, custom_css, fps, crf, created_at
 `
 
 type CreateTaskParams struct {
@@ -57,6 +57,7 @@ type CreateTaskParams struct {
 	FilenameTemplate string
 	CustomCss        string
 	Fps              int64
+	Crf              int64
 }
 
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error) {
@@ -66,6 +67,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		arg.FilenameTemplate,
 		arg.CustomCss,
 		arg.Fps,
+		arg.Crf,
 	)
 	var i Task
 	err := row.Scan(
@@ -77,6 +79,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.FilenameTemplate,
 		&i.CustomCss,
 		&i.Fps,
+		&i.Crf,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -158,7 +161,7 @@ func (q *Queries) GetRecording(ctx context.Context, id int64) (Recording, error)
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, name, target_url, is_enabled, is_deleted, filename_template, custom_css, fps, created_at FROM tasks WHERE id = ? LIMIT 1
+SELECT id, name, target_url, is_enabled, is_deleted, filename_template, custom_css, fps, crf, created_at FROM tasks WHERE id = ? LIMIT 1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
@@ -173,6 +176,7 @@ func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
 		&i.FilenameTemplate,
 		&i.CustomCss,
 		&i.Fps,
+		&i.Crf,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -195,7 +199,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 }
 
 const listEnabledTasks = `-- name: ListEnabledTasks :many
-SELECT id, name, target_url, is_enabled, is_deleted, filename_template, custom_css, fps, created_at FROM tasks WHERE is_enabled = 1
+SELECT id, name, target_url, is_enabled, is_deleted, filename_template, custom_css, fps, crf, created_at FROM tasks WHERE is_enabled = 1
 `
 
 func (q *Queries) ListEnabledTasks(ctx context.Context) ([]Task, error) {
@@ -216,6 +220,7 @@ func (q *Queries) ListEnabledTasks(ctx context.Context) ([]Task, error) {
 			&i.FilenameTemplate,
 			&i.CustomCss,
 			&i.Fps,
+			&i.Crf,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -280,7 +285,7 @@ func (q *Queries) ListRecordings(ctx context.Context) ([]ListRecordingsRow, erro
 }
 
 const listTasks = `-- name: ListTasks :many
-SELECT id, name, target_url, is_enabled, is_deleted, filename_template, custom_css, fps, created_at FROM tasks WHERE is_deleted = 0 ORDER BY created_at DESC
+SELECT id, name, target_url, is_enabled, is_deleted, filename_template, custom_css, fps, crf, created_at FROM tasks WHERE is_deleted = 0 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
@@ -301,6 +306,7 @@ func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
 			&i.FilenameTemplate,
 			&i.CustomCss,
 			&i.Fps,
+			&i.Crf,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -330,6 +336,35 @@ func (q *Queries) UpdateRecordingStatus(ctx context.Context, arg UpdateRecording
 	return err
 }
 
+const updateTask = `-- name: UpdateTask :exec
+UPDATE tasks 
+SET name = ?, target_url = ?, filename_template = ?, custom_css = ?, fps = ?, crf = ?
+WHERE id = ?
+`
+
+type UpdateTaskParams struct {
+	Name             string
+	TargetUrl        string
+	FilenameTemplate string
+	CustomCss        string
+	Fps              int64
+	Crf              int64
+	ID               int64
+}
+
+func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) error {
+	_, err := q.db.ExecContext(ctx, updateTask,
+		arg.Name,
+		arg.TargetUrl,
+		arg.FilenameTemplate,
+		arg.CustomCss,
+		arg.Fps,
+		arg.Crf,
+		arg.ID,
+	)
+	return err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE users SET password_hash = ? WHERE username = ?
 `
@@ -341,32 +376,5 @@ type UpdateUserPasswordParams struct {
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.PasswordHash, arg.Username)
-	return err
-}
-
-const updateTask = `-- name: UpdateTask :exec
-UPDATE tasks 
-SET name = ?, target_url = ?, filename_template = ?, custom_css = ?, fps = ?
-WHERE id = ?
-`
-
-type UpdateTaskParams struct {
-	Name             string
-	TargetUrl        string
-	FilenameTemplate string
-	CustomCss        string
-	Fps              int64
-	ID               int64
-}
-
-func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) error {
-	_, err := q.db.ExecContext(ctx, updateTask,
-		arg.Name,
-		arg.TargetUrl,
-		arg.FilenameTemplate,
-		arg.CustomCss,
-		arg.Fps,
-		arg.ID,
-	)
 	return err
 }

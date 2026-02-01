@@ -298,6 +298,7 @@ type TaskDTO struct {
 	CreatedAt        time.Time `json:"created_at"`
 	CustomCSS        string    `json:"custom_css"`
 	Fps              int64     `json:"fps"`
+	Crf              int64     `json:"crf"`
 	FilenameTemplate string    `json:"filename_template"`
 }
 
@@ -308,6 +309,7 @@ func (h *Handler) CreateTask(c echo.Context) error {
 		FilenameTemplate string `json:"filename_template"`
 		CustomCSS        string `json:"custom_css"`
 		Fps              *int64 `json:"fps"`
+		Crf              *int64 `json:"crf"`
 	}
 
 	var req CreateTaskRequest
@@ -349,12 +351,25 @@ func (h *Handler) CreateTask(c echo.Context) error {
 		}
 	}
 
+	// 4. CRF Validation
+	var crf int64 = 23 // Default
+	if req.Crf != nil {
+		crf = *req.Crf
+		if crf < 0 || crf > 51 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "crf must be between 0 and 51"})
+		}
+		if crf < 15 {
+			fmt.Printf("Warning: Task '%s' created with very high quality (CRF %d). Large file sizes expected.\n", req.Name, crf)
+		}
+	}
+
 	params := database.CreateTaskParams{
 		Name:             req.Name,
 		TargetUrl:        req.TargetURL,
 		FilenameTemplate: req.FilenameTemplate,
 		CustomCss:        req.CustomCSS,
 		Fps:              fps,
+		Crf:              crf,
 	}
 
 	task, err := h.Queries.CreateTask(c.Request().Context(), params)
@@ -369,6 +384,7 @@ func (h *Handler) CreateTask(c echo.Context) error {
 		IsEnabled:        task.IsEnabled,
 		CreatedAt:        task.CreatedAt,
 		Fps:              task.Fps,
+		Crf:              task.Crf,
 		CustomCSS:        task.CustomCss,
 		FilenameTemplate: task.FilenameTemplate,
 	})
@@ -389,6 +405,7 @@ func (h *Handler) ListTasks(c echo.Context) error {
 			IsEnabled:        t.IsEnabled,
 			CreatedAt:        t.CreatedAt,
 			Fps:              t.Fps,
+			Crf:              t.Crf,
 			CustomCSS:        t.CustomCss,
 			FilenameTemplate: t.FilenameTemplate,
 		}
@@ -439,7 +456,7 @@ func (h *Handler) StartTask(c echo.Context) error {
 	}
 
 	// 5. Start Worker
-	if err := h.Recorder.StartRecording(c.Request().Context(), taskID, task.TargetUrl, rec.ID, fullPath, task.CustomCss, task.Fps); err != nil {
+	if err := h.Recorder.StartRecording(c.Request().Context(), taskID, task.TargetUrl, rec.ID, fullPath, task.CustomCss, task.Fps, task.Crf); err != nil {
 		// Update status to failed
 		_ = h.Queries.UpdateRecordingStatus(c.Request().Context(), database.UpdateRecordingStatusParams{
 			Status: "FAILED",
@@ -487,6 +504,7 @@ func (h *Handler) UpdateTask(c echo.Context) error {
 		FilenameTemplate string `json:"filename_template"`
 		CustomCSS        string `json:"custom_css"`
 		Fps              *int64 `json:"fps"`
+		Crf              *int64 `json:"crf"`
 	}
 
 	var req UpdateTaskRequest
@@ -499,11 +517,40 @@ func (h *Handler) UpdateTask(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid target_url"})
 	}
 
+	// 2. Filename Template (Path Traversal Prevention)
+	if req.FilenameTemplate != "" {
+		// Allow alphanumeric, underscore, dot, dash.
+		matched, _ := regexp.MatchString(`^[a-zA-Z0-9_.-]+$`, req.FilenameTemplate)
+		if !matched {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "filename_template contains invalid characters. Allowed: a-z, A-Z, 0-9, _, ., -"})
+		}
+		// Explicitly reject traversal and separators
+		if strings.Contains(req.FilenameTemplate, "..") || strings.Contains(req.FilenameTemplate, "/") || strings.Contains(req.FilenameTemplate, "\\") {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "filename_template cannot contain path traversal or separators"})
+		}
+	}
+
+	// 3. FPS Validation
 	var fps int64 = 5
 	if req.Fps != nil {
 		fps = *req.Fps
 		if fps < 1 || fps > 15 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "fps must be between 1 and 15"})
+		}
+		if int(fps) > h.Config.MaxFpsLimit {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("fps cannot exceed server limit of %d", h.Config.MaxFpsLimit)})
+		}
+	}
+
+	// 4. CRF Validation
+	var crf int64 = 23
+	if req.Crf != nil {
+		crf = *req.Crf
+		if crf < 0 || crf > 51 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "crf must be between 0 and 51"})
+		}
+		if crf < 15 {
+			fmt.Printf("Warning: Task '%s' updated with very high quality (CRF %d). Large file sizes expected.\n", req.Name, crf)
 		}
 	}
 
@@ -513,6 +560,7 @@ func (h *Handler) UpdateTask(c echo.Context) error {
 		FilenameTemplate: req.FilenameTemplate,
 		CustomCss:        req.CustomCSS,
 		Fps:              fps,
+		Crf:              crf,
 		ID:               taskID,
 	})
 	if err != nil {

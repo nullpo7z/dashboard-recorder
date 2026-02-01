@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"log"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -37,6 +38,16 @@ func main() {
 	_, _ = db.Exec("ALTER TABLE tasks ADD COLUMN filename_template TEXT NOT NULL DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE tasks ADD COLUMN custom_css TEXT NOT NULL DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE tasks ADD COLUMN fps INTEGER NOT NULL DEFAULT 5")
+
+	// Manual migration for CRF
+	// We check for "duplicate column" error specifically to be safe
+	if _, err := db.Exec("ALTER TABLE tasks ADD COLUMN crf INTEGER NOT NULL DEFAULT 23"); err != nil {
+		// SQLite error for duplicate column usually contains "duplicate column name"
+		if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
+			// Log warning but don't fail, as it might just exist
+			log.Printf("Migration warning (crf): %v", err)
+		}
+	}
 
 	queries := database.New(db)
 

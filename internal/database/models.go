@@ -27,6 +27,7 @@ type Task struct {
 	FilenameTemplate string
 	CustomCss        string
 	Fps              int64
+	Crf              int64
 	CreatedAt        time.Time
 }
 

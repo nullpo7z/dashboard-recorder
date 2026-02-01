@@ -92,7 +92,7 @@ func (w *Worker) Stop() {
 }
 
 // StartRecording initiates a recording session.
-func (w *Worker) StartRecording(ctx context.Context, taskID int64, url string, recordingID int64, outputPath string, customCSS string, fps int64) error {
+func (w *Worker) StartRecording(ctx context.Context, taskID int64, url string, recordingID int64, outputPath string, customCSS string, fps int64, crf int64) error {
 	w.mu.Lock()
 	if _, exists := w.sessions[taskID]; exists {
 		w.mu.Unlock()
@@ -138,7 +138,7 @@ func (w *Worker) StartRecording(ctx context.Context, taskID int64, url string, r
 			slog.Info("High FPS recording started", "task_id", taskID, "fps", fps, "warning", "Significant disk usage expected")
 		}
 
-		err := w.recordLoop(recCtx, taskID, url, outputPath, customCSS, fps)
+		err := w.recordLoop(recCtx, taskID, url, outputPath, customCSS, fps, crf)
 
 		status := "COMPLETED"
 		if err != nil {
@@ -171,7 +171,7 @@ func (w *Worker) StopRecording(taskID int64) error {
 	return nil
 }
 
-func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, customCSS string, fps int64) error {
+func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, customCSS string, fps int64, crf int64) error {
 	opts := playwright.BrowserNewContextOptions{
 		Viewport:          &playwright.Size{Width: 1920, Height: 1080},
 		BypassCSP:         playwright.Bool(true),
@@ -215,7 +215,7 @@ func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, 
 	}
 
 	// Start FFmpeg
-	// Using "ultrafast" and "crf 28" for low CPU usage during live capture
+	// Using "ultrafast" and configurable CRF for cpu/quality balance
 	// Use exec.Command instead of CommandContext so context cancellation doesn't kill it immediately
 	// Start FFmpeg
 	// Use exec.Command instead of CommandContext so we can manage graceful shutdown manually
@@ -229,6 +229,7 @@ func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, 
 		"-c:v", "libx264",
 		"-preset", "ultrafast",
 		"-pix_fmt", "yuv420p",
+		"-crf", fmt.Sprintf("%d", crf),
 		"-r", fmt.Sprintf("%d", fps),
 		outputPath,
 	)

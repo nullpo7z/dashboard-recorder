@@ -22,7 +22,7 @@ export function Dashboard() {
     const queryClient = useQueryClient()
 
     const createMutation = useMutation({
-        mutationFn: async (newTask: { name: string, target_url: string, filename_template: string, custom_css: string, fps: number }) => {
+        mutationFn: async (newTask: { name: string, target_url: string, filename_template: string, custom_css: string, fps: number, crf: number }) => {
             const res = await axios.post('/api/tasks', newTask)
             return res.data
         },
@@ -218,7 +218,8 @@ function TaskModal({ title, onClose, onSubmit, isPending, initialData }: {
 }) {
     const [name, setName] = React.useState(initialData?.name || '')
     const [url, setUrl] = React.useState(initialData?.target_url || '')
-    const [fps, setFps] = React.useState((initialData as any)?.fps || 5) // Cast because backend returns fps but interface might be sparse
+    const [fps, setFps] = React.useState((initialData as any)?.fps || 5)
+    const [crf, setCrf] = React.useState((initialData as any)?.crf || 23)
     const [filenameTemplate, setFilenameTemplate] = React.useState(initialData?.filename_template || '')
     const [customCSS, setCustomCSS] = React.useState(initialData?.custom_css || '')
     const [previewImage, setPreviewImage] = React.useState<string | null>(null)
@@ -250,7 +251,7 @@ function TaskModal({ title, onClose, onSubmit, isPending, initialData }: {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
-        onSubmit({ name, target_url: url, filename_template: filenameTemplate, custom_css: customCSS, fps })
+        onSubmit({ name, target_url: url, filename_template: filenameTemplate, custom_css: customCSS, fps, crf })
     }
 
     return (
@@ -307,6 +308,23 @@ function TaskModal({ title, onClose, onSubmit, isPending, initialData }: {
                         />
                         <p className="text-xs text-gray-500 mt-1">Min: 1, Max: 15</p>
                         <p className="text-xs text-gray-500 mt-1">Recommended: 30 for video, 5-10 for simple dashboards. Max: 60.</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-1">Quality (CRF)</label>
+                        <input
+                            type="number"
+                            min="0"
+                            max="51"
+                            required
+                            value={crf}
+                            onChange={e => setCrf(Number(e.target.value))}
+                            className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white focus:border-blue-500 outline-none"
+                            placeholder="23"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                            0-51 (Lower value = Higher Quality & Larger File Size). <br />
+                            Default: 23. Recommended: 18-28.
+                        </p>
                     </div>
                     <div>
                         <div className="flex justify-between items-center mb-1">
