@@ -1,0 +1,14 @@
+.git
+.gitignore
+.dockerignore
+LICENSE
+README.md
+README_ja.md
+backend_data
+recordings
+bin
+dist
+.vscode
+.idea
+*.log
+.env

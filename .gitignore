@@ -1,0 +1,33 @@
+# Binaries
+/bin
+/dist
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Recordings and Data
+/backend_data
+/recordings
+*.db
+*.db-journal
+*.mkv
+*.mp4
+*.jpg
+*.png
+
+# IDEs
+.vscode
+.idea
+*.iml
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

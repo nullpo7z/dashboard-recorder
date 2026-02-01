@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    image: dashboard-recorder:latest
+    container_name: dashboard_recorder
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - JWT_SECRET=${JWT_SECRET:-change_me_in_production} # WARNING: override this in production!
+      - DATABASE_PATH=/app/data/app.db
+    volumes:
+      # Use host-mounted volumes for persistence with correct permissions (managed by mkdir in prev steps)
+      - ./backend_data:/app/data
+      - ./backend_recordings:/app/recordings
+    # Security: Drop unnecessary capabilities
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    # Run as non-root (matches Dockerfile UID)
+    user: "1000:1000"
