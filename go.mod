@@ -3,6 +3,7 @@ module github.com/nullpo7z/dashboard-recorder
 go 1.24.0
 
 require (
+	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/labstack/echo-jwt/v4 v4.4.0
@@ -12,12 +13,14 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.1
 	golang.org/x/crypto v0.47.0
 	golang.org/x/exp v0.0.0-20240103183307-be819d1f06fc
+	golang.org/x/oauth2 v0.34.0
 	golang.org/x/time v0.14.0
 )
 
 require (
 	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect

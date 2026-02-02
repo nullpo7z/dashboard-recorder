@@ -21,8 +21,9 @@ RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -trimpath -o dashboard-re
 # Stage 2: Runtime
 FROM debian:bookworm-slim
 
-# Install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install dependencies with security updates
+# STRICTLY chain update and upgrade to ensure security patches
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     chromium \
     ffmpeg \
     fonts-noto-cjk \
@@ -34,8 +35,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd -r appuser && useradd -r -g appuser -u 1000 -m -d /home/appuser appuser
 
 # Create app directory and volumes with correct permissions
+# Ensure /app/data and /app/recordings are writable by the user
 WORKDIR /app
-RUN mkdir -p /app/data /app/recordings && \
+RUN mkdir -p /app/data/certs /app/recordings && \
     chown -R appuser:appuser /app
 
 # Copy binary
@@ -43,23 +45,14 @@ COPY --from=builder --chown=appuser:appuser /app/dashboard-recorder /app/server
 COPY --from=frontend-builder --chown=appuser:appuser /app/web/dist /app/web/dist
 # Copy Playwright browsers (Chromium)
 COPY --from=builder --chown=appuser:appuser /app/pw-browsers /home/appuser/pw-browsers
-# Copy Playwright Driver (The nodejs scripts) - It was installed to /root/.cache in builder
+# Copy Playwright Driver
 COPY --from=builder --chown=appuser:appuser /root/.cache/ms-playwright-go /home/appuser/.cache/ms-playwright-go
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/appuser/pw-browsers
-# Playwright-Go looks for the driver relative to the cache usually, or we might need to set a driver path.
-# But copying to ~/.cache/ms-playwright-go usually works if the user matches.
-# I will include the frontend copy if the previous context suggests it exists, 
-# but strictly the user gave specific base image instructions.)
-
-# Let's verify if I should include frontend. The user said "Files to Generate ... Dockerfile".
-# I will stick to a standard multi-stage build similar to before but refined.
-# Actually, I'll stick to the user's explicit request for the *Runtime* part details.
-# But I need to include the frontend content to serve it. 
-# I'll re-add the frontend builder stage from the previous successful state to be safe.
 
 USER appuser
-EXPOSE 8080
+# Expose unprivileged ports
+EXPOSE 8080 8443
 ENV HOME=/home/appuser
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["/app/server"]

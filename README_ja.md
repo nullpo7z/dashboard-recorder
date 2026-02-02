@@ -29,12 +29,22 @@ services:
     container_name: dashboard_recorder
     restart: unless-stopped
     ports:
-      - "8090:8080"
+      - "80:8080"   # HTTP (HTTPSへリダイレクト)
+      - "443:8443"  # HTTPS
     environment:
       - TZ=Asia/Tokyo
       - LOG_LEVEL=info
       - JWT_SECRET=change_me_in_production
       - DATABASE_PATH=/app/data/app.db
+      # OIDC設定 (任意)
+      - OIDC_PROVIDER=
+      - OIDC_CLIENT_ID=
+      - OIDC_CLIENT_SECRET=
+      - OIDC_REDIRECT_URL=
+      - OIDC_ALLOWED_EMAILS=
+      # 自動HTTPS (Let's Encrypt) 設定
+      - TLS_DOMAIN=yourdomain.com
+      - TLS_EMAIL=youremail@example.com
     volumes:
       - ./backend_data:/app/data
       - ./backend_recordings:/app/recordings
@@ -47,12 +57,18 @@ services:
     user: "1000:1000"
 ```
 
+### 2. ディレクトリの権限設定 (重要)
+
+本アプリケーションはセキュリティ強化のため、非rootユーザー (UID 1000) で実行されます。
+ホスト側のボリュームディレクトリに対して、適切な書き込み権限を付与する必要があります。
+
 ```bash
-# 起動
-docker compose up -d
+# データディレクトリの権限変更
+mkdir -p backend_data backend_recordings
+sudo chown -R 1000:1000 backend_data backend_recordings
 ```
 
-### 2. ソースコードからビルド (開発用)
+### 3. ソースコードからビルド (開発用)
 
 リポジトリをクローンしてビルドします。
 

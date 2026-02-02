@@ -31,12 +31,22 @@ services:
     container_name: dashboard_recorder
     restart: unless-stopped
     ports:
-      - "8090:8080"
+      - "80:8080"   # HTTP (Redirect to HTTPS)
+      - "443:8443"  # HTTPS
     environment:
       - TZ=Asia/Tokyo
       - LOG_LEVEL=info
       - JWT_SECRET=change_me_in_production
       - DATABASE_PATH=/app/data/app.db
+      # OIDC Configuration (Optional)
+      - OIDC_PROVIDER=
+      - OIDC_CLIENT_ID=
+      - OIDC_CLIENT_SECRET=
+      - OIDC_REDIRECT_URL=
+      - OIDC_ALLOWED_EMAILS=
+      # Auto-HTTPS (Let's Encrypt) Configuration
+      - TLS_DOMAIN=yourdomain.com
+      - TLS_EMAIL=youremail@example.com
     volumes:
       - ./backend_data:/app/data
       - ./backend_recordings:/app/recordings
@@ -47,6 +57,17 @@ services:
     security_opt:
       - no-new-privileges:true
     user: "1000:1000"
+```
+
+### 2. Directory Permissions (Important)
+
+This application runs as a non-root user (UID 1000) for enhanced security.
+You MUST set the correct write permissions for the host volume directories.
+
+```bash
+# Create and set permissions for data directories
+mkdir -p backend_data backend_recordings
+sudo chown -R 1000:1000 backend_data backend_recordings
 ```
 
 ```bash

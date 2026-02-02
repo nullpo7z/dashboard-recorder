@@ -43,6 +43,9 @@ type Handler struct {
 
 	// Ticket Store
 	TicketStore auth.TicketStore
+
+	// OIDC
+	OIDC *OIDCContext
 }
 
 func New(q *database.Queries, cfg *config.Config, rec *recorder.Worker, db *sql.DB) *Handler {
@@ -57,6 +60,11 @@ func New(q *database.Queries, cfg *config.Config, rec *recorder.Worker, db *sql.
 
 	// Initialize admin user if needed
 	go h.initAdminUser()
+
+	// Initialize OIDC
+	if err := h.InitOIDC(); err != nil {
+		fmt.Printf("WARNING: OIDC Initialization failed: %v\n", err)
+	}
 
 	// Start ticket cleanup routine
 	h.TicketStore.StartCleanupLoop(context.Background(), 1*time.Minute)
@@ -164,21 +172,29 @@ func (h *Handler) Login(c echo.Context) error {
 	}
 
 	// Create JWT
-	now := time.Now()
-	// Reduced usage for security
-	exp := now.Add(time.Hour * 24)
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user": req.Username,
-		"exp":  jwt.NewNumericDate(exp),
-	})
-
-	t, err := token.SignedString([]byte(h.Config.JWTSecret))
+	t, err := h.createJWT(req.Username)
 	if err != nil {
 		return err
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"token": t})
+}
+
+func (h *Handler) createJWT(username string) (string, error) {
+	now := time.Now()
+	// Reduced usage for security
+	exp := now.Add(time.Hour * 24)
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user": username,
+		"exp":  jwt.NewNumericDate(exp),
+	})
+
+	t, err := token.SignedString([]byte(h.Config.JWTSecret))
+	if err != nil {
+		return "", err
+	}
+	return t, nil
 }
 
 type ChangePasswordRequest struct {
@@ -590,19 +606,11 @@ func (h *Handler) DeleteTask(c echo.Context) error {
 func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	// Public routes with Rate Limiting
 	e.POST("/api/login", h.Login, h.RateLimitMiddleware)
+	e.GET("/auth/login", h.AuthLogin)       // OIDC Login Start
+	e.GET("/auth/callback", h.AuthCallback) // OIDC Callback
 
 	g := e.Group("/api")
-	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			// CSP: Strict security policy
-			c.Response().Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:;")
-			// Security Headers
-			c.Response().Header().Set("X-Content-Type-Options", "nosniff")
-			c.Response().Header().Set("X-Frame-Options", "DENY")
-			c.Response().Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
-			return next(c)
-		}
-	})
+	// Security headers are now handled globally in main.go
 
 	config := echojwt.Config{
 		TokenLookup: "header:Authorization",

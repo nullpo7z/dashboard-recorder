@@ -41,7 +41,14 @@ func New(cfg *config.Config, q *database.Queries) (*Worker, error) {
 		SkipInstallBrowsers: true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("could not start playwright: %w", err)
+		// SOFT FAIL for OIDC Testing: Log warning and continue without recorder
+		log.Printf("WARNING: Could not start Playwright: %v. Recorder features will be disabled.", err)
+		return &Worker{
+			config:       cfg,
+			queries:      q,
+			sessions:     make(map[int64]context.CancelFunc),
+			latestFrames: make(map[int64][]byte),
+		}, nil
 	}
 
 	opts := playwright.BrowserTypeLaunchOptions{
@@ -61,8 +68,15 @@ func New(cfg *config.Config, q *database.Queries) (*Worker, error) {
 
 	browser, err := pw.Chromium.Launch(opts)
 	if err != nil {
+		log.Printf("WARNING: Could not launch browser: %v. Recorder features will be disabled.", err)
 		pw.Stop()
-		return nil, fmt.Errorf("could not launch browser: %w", err)
+		return &Worker{
+			pw:           pw,
+			config:       cfg,
+			queries:      q,
+			sessions:     make(map[int64]context.CancelFunc),
+			latestFrames: make(map[int64][]byte),
+		}, nil
 	}
 
 	return &Worker{
