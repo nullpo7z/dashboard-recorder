@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -18,6 +17,10 @@ import (
 	"github.com/nullpo7z/dashboard-recorder/internal/database"
 	"github.com/nullpo7z/dashboard-recorder/internal/recorder"
 	"golang.org/x/crypto/acme/autocert"
+
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/sqlite3"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 func main() {
@@ -31,30 +34,33 @@ func main() {
 	}
 	defer db.Close()
 
-	// 3. Run migrations
-	if _, err := db.Exec(database.Schema); err != nil {
-		log.Fatalf("failed to apply schema: %v", err)
+	// 3. Run migrations (golang-migrate)
+	driver, err := sqlite3.WithInstance(db, &sqlite3.Config{})
+	if err != nil {
+		log.Fatalf("failed to create migration driver: %v", err)
 	}
 
-	// 3.1 Apply manual migrations for new columns (idempotent-ish check)
-	// We ignore errors here usually assuming they might mean column exists,
-	// but better to check or just run and allow fail if exists?
-	// Sqlite doesn't support IF NOT EXISTS in ADD COLUMN easily.
-	// Hacky migration:
-	_, _ = db.Exec("ALTER TABLE tasks ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT 0")
-	_, _ = db.Exec("ALTER TABLE tasks ADD COLUMN filename_template TEXT NOT NULL DEFAULT ''")
-	_, _ = db.Exec("ALTER TABLE tasks ADD COLUMN custom_css TEXT NOT NULL DEFAULT ''")
-	_, _ = db.Exec("ALTER TABLE tasks ADD COLUMN fps INTEGER NOT NULL DEFAULT 5")
-
-	// Manual migration for CRF
-	// We check for "duplicate column" error specifically to be safe
-	if _, err := db.Exec("ALTER TABLE tasks ADD COLUMN crf INTEGER NOT NULL DEFAULT 23"); err != nil {
-		// SQLite error for duplicate column usually contains "duplicate column name"
-		if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
-			// Log warning but don't fail, as it might just exist
-			log.Printf("Migration warning (crf): %v", err)
+	m, err := migrate.NewWithDatabaseInstance(
+		"file:///app/db/migrations",
+		"sqlite3", driver,
+	)
+	if err != nil {
+		// Fallback for local development if /app/db/migrations doesn't exist
+		if _, statErr := os.Stat("db/migrations"); statErr == nil {
+			m, err = migrate.NewWithDatabaseInstance(
+				"file://db/migrations",
+				"sqlite3", driver,
+			)
+		}
+		if err != nil {
+			log.Fatalf("failed to init migration: %v", err)
 		}
 	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		log.Fatalf("failed to run migrations: %v", err)
+	}
+	log.Println("Database migrations applied successfully")
 
 	queries := database.New(db)
 

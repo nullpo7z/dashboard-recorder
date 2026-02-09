@@ -119,7 +119,7 @@ func (w *Worker) Stop() {
 }
 
 // StartRecording initiates a recording session.
-func (w *Worker) StartRecording(ctx context.Context, taskID int64, url string, recordingID int64, outputPath string, customCSS string, fps int64, crf int64) error {
+func (w *Worker) StartRecording(ctx context.Context, taskID int64, url string, recordingID int64, outputPath string, customCSS string, fps int64, crf int64, timeOverlay bool, timeOverlayConfig string) error {
 	w.mu.Lock()
 	if _, exists := w.sessions[taskID]; exists {
 		w.mu.Unlock()
@@ -165,7 +165,7 @@ func (w *Worker) StartRecording(ctx context.Context, taskID int64, url string, r
 			slog.Info("High FPS recording started", "task_id", taskID, "fps", fps, "warning", "Significant disk usage expected")
 		}
 
-		err := w.recordLoop(recCtx, taskID, url, outputPath, customCSS, fps, crf)
+		err := w.recordLoop(recCtx, taskID, url, outputPath, customCSS, fps, crf, timeOverlay, timeOverlayConfig)
 
 		status := "COMPLETED"
 		if err != nil {
@@ -198,7 +198,7 @@ func (w *Worker) StopRecording(taskID int64) error {
 	return nil
 }
 
-func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, customCSS string, fps int64, crf int64) error {
+func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, customCSS string, fps int64, crf int64, timeOverlay bool, timeOverlayConfig string) error {
 	opts := playwright.BrowserNewContextOptions{
 		Viewport:          &playwright.Size{Width: 1920, Height: 1080},
 		BypassCSP:         playwright.Bool(true),
@@ -231,6 +231,14 @@ func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, 
 		return fmt.Errorf("nav failed: %w", err)
 	}
 
+	// Inject Time Overlay if enabled
+	if timeOverlay {
+		if err := w.InjectTimeOverlay(page, timeOverlayConfig, w.config.NtpServer); err != nil {
+			log.Printf("Failed to inject time overlay for task %d: %v", taskID, err)
+			// Continue recording even if overlay fails
+		}
+	}
+
 	// Inject Custom CSS if present
 	if customCSS != "" {
 		if _, err := page.AddStyleTag(playwright.PageAddStyleTagOptions{
@@ -247,6 +255,7 @@ func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, 
 		"task_id", taskID,
 		"crf", crf,
 		"jpeg_quality", jpegQuality,
+		"time_overlay", timeOverlay,
 	)
 
 	// Start FFmpeg
@@ -612,4 +621,102 @@ func calculateJpegQuality(crf int64) int {
 	}
 
 	return qInt
+}
+
+// InjectTimeOverlay injects a time overlay into the page, synchronized with NTP.
+func (w *Worker) InjectTimeOverlay(page playwright.Page, config string, ntpServer string) error {
+	// 1. Get NTP Offset
+	offset, err := GetNTPTime(ntpServer)
+	if err != nil {
+		slog.Error("NTP query failed, falling back to system time", "error", err)
+		offset = 0
+	}
+
+	// 2. Validate Config
+	validConfigs := map[string]bool{
+		"top-left":     true,
+		"top-right":    true,
+		"bottom-left":  true,
+		"bottom-right": true,
+	}
+	if !validConfigs[config] {
+		config = "bottom-right" // Default
+	}
+
+	// 3. Prepare Injection Script
+	// We use JSON.stringify to safely inject values into the script
+	offsetMs := offset.Milliseconds()
+	scriptTemplate := `
+		(function() {
+			const offsetMs = %d;
+			const position = "%s";
+
+			const div = document.createElement('div');
+			div.id = 'uniquetimeoverlay';
+			div.style.position = 'fixed';
+			div.style.padding = '4px 8px';
+			div.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+			div.style.color = 'white';
+			div.style.fontSize = '14px';
+			div.style.fontFamily = 'monospace';
+			div.style.zIndex = '9999';
+			div.style.pointerEvents = 'none';
+
+			// Tailwind-like positioning
+			if (position === 'top-left') {
+				div.style.top = '10px';
+				div.style.left = '10px';
+			} else if (position === 'top-right') {
+				div.style.top = '10px';
+				div.style.right = '10px';
+			} else if (position === 'bottom-left') {
+				div.style.bottom = '10px';
+				div.style.left = '10px';
+			} else { // bottom-right
+				div.style.bottom = '10px';
+				div.style.right = '10px';
+			}
+
+			document.body.appendChild(div);
+
+			function updateTime() {
+				const now = new Date(Date.now() + offsetMs);
+				// Format: YYYY-MM-DD HH:mm:ss.SSS
+				const iso = now.toISOString(); // 2023-10-05T14:48:00.000Z
+				// Convert to local time string or keep UTC? User requirement implies "current time".
+				// Usually local time is preferred for display.
+				// However, NTP gives UTC time generally.
+				// We'll stick to local time of the browser (container) + offset.
+				// Actually, offset applies to the timestamp.
+				
+				// Let's use a custom formatter for stability
+				const pad = (n) => n.toString().padStart(2, '0');
+				const pad3 = (n) => n.toString().padStart(3, '0');
+				
+				const YYYY = now.getFullYear();
+				const MM = pad(now.getMonth() + 1);
+				const DD = pad(now.getDate());
+				const HH = pad(now.getHours());
+				const mm = pad(now.getMinutes());
+				const ss = pad(now.getSeconds());
+				const SSS = pad3(now.getMilliseconds());
+
+				div.textContent = ` + "`" + `${YYYY}-${MM}-${DD} ${HH}:${mm}:${ss}.${SSS}` + "`" + `;
+			}
+
+			setInterval(updateTime, 16); // ~60fps update
+			updateTime();
+		})();
+	`
+
+	script := fmt.Sprintf(scriptTemplate, offsetMs, config)
+
+	// 4. Inject
+	if err := page.AddInitScript(playwright.Script{
+		Content: playwright.String(script),
+	}); err != nil {
+		return fmt.Errorf("failed to inject time overlay script: %w", err)
+	}
+
+	return nil
 }

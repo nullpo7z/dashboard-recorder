@@ -11,7 +11,7 @@ SELECT * FROM tasks WHERE is_deleted = 0 ORDER BY created_at DESC;
 SELECT * FROM tasks WHERE id = ? LIMIT 1;
 
 -- name: CreateTask :one
-INSERT INTO tasks (name, target_url, is_enabled, filename_template, custom_css, fps, crf) VALUES (?, ?, 0, ?, ?, ?, ?) RETURNING *;
+INSERT INTO tasks (name, target_url, is_enabled, filename_template, custom_css, fps, crf, time_overlay, time_overlay_config) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?) RETURNING *;
 
 -- name: DeleteTask :exec
 UPDATE tasks SET is_deleted = 1, is_enabled = 0 WHERE id = ?;
@@ -52,7 +52,7 @@ UPDATE users SET password_hash = ? WHERE username = ?;
 
 -- name: UpdateTask :exec
 UPDATE tasks 
-SET name = ?, target_url = ?, filename_template = ?, custom_css = ?, fps = ?, crf = ?
+SET name = ?, target_url = ?, filename_template = ?, custom_css = ?, fps = ?, crf = ?, time_overlay = ?, time_overlay_config = ?
 WHERE id = ?;
 
 -- name: CountUsers :one

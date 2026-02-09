@@ -307,25 +307,29 @@ func (h *Handler) GenerateTicket(c echo.Context) error {
 }
 
 type TaskDTO struct {
-	ID               int64     `json:"id"`
-	Name             string    `json:"name"`
-	TargetURL        string    `json:"target_url"`
-	IsEnabled        bool      `json:"is_enabled"`
-	CreatedAt        time.Time `json:"created_at"`
-	CustomCSS        string    `json:"custom_css"`
-	Fps              int64     `json:"fps"`
-	Crf              int64     `json:"crf"`
-	FilenameTemplate string    `json:"filename_template"`
+	ID                int64     `json:"id"`
+	Name              string    `json:"name"`
+	TargetURL         string    `json:"target_url"`
+	IsEnabled         bool      `json:"is_enabled"`
+	CreatedAt         time.Time `json:"created_at"`
+	CustomCSS         string    `json:"custom_css"`
+	Fps               int64     `json:"fps"`
+	Crf               int64     `json:"crf"`
+	FilenameTemplate  string    `json:"filename_template"`
+	TimeOverlay       bool      `json:"time_overlay"`
+	TimeOverlayConfig string    `json:"time_overlay_config"`
 }
 
 func (h *Handler) CreateTask(c echo.Context) error {
 	type CreateTaskRequest struct {
-		Name             string `json:"name"`
-		TargetURL        string `json:"target_url"`
-		FilenameTemplate string `json:"filename_template"`
-		CustomCSS        string `json:"custom_css"`
-		Fps              *int64 `json:"fps"`
-		Crf              *int64 `json:"crf"`
+		Name              string `json:"name"`
+		TargetURL         string `json:"target_url"`
+		FilenameTemplate  string `json:"filename_template"`
+		CustomCSS         string `json:"custom_css"`
+		Fps               *int64 `json:"fps"`
+		Crf               *int64 `json:"crf"`
+		TimeOverlay       bool   `json:"time_overlay"`
+		TimeOverlayConfig string `json:"time_overlay_config"`
 	}
 
 	var req CreateTaskRequest
@@ -379,13 +383,25 @@ func (h *Handler) CreateTask(c echo.Context) error {
 		}
 	}
 
+	// 5. Time Overlay Validation
+	if req.TimeOverlayConfig != "" {
+		valid := map[string]bool{"top-left": true, "top-right": true, "bottom-left": true, "bottom-right": true}
+		if !valid[req.TimeOverlayConfig] {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid time_overlay_config"})
+		}
+	} else {
+		req.TimeOverlayConfig = "bottom-right" // Default
+	}
+
 	params := database.CreateTaskParams{
-		Name:             req.Name,
-		TargetUrl:        req.TargetURL,
-		FilenameTemplate: req.FilenameTemplate,
-		CustomCss:        req.CustomCSS,
-		Fps:              fps,
-		Crf:              crf,
+		Name:              req.Name,
+		TargetUrl:         req.TargetURL,
+		FilenameTemplate:  req.FilenameTemplate,
+		CustomCss:         req.CustomCSS,
+		Fps:               fps,
+		Crf:               crf,
+		TimeOverlay:       req.TimeOverlay,
+		TimeOverlayConfig: req.TimeOverlayConfig,
 	}
 
 	task, err := h.Queries.CreateTask(c.Request().Context(), params)
@@ -394,15 +410,17 @@ func (h *Handler) CreateTask(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusCreated, TaskDTO{
-		ID:               task.ID,
-		Name:             task.Name,
-		TargetURL:        task.TargetUrl,
-		IsEnabled:        task.IsEnabled,
-		CreatedAt:        task.CreatedAt,
-		Fps:              task.Fps,
-		Crf:              task.Crf,
-		CustomCSS:        task.CustomCss,
-		FilenameTemplate: task.FilenameTemplate,
+		ID:                task.ID,
+		Name:              task.Name,
+		TargetURL:         task.TargetUrl,
+		IsEnabled:         task.IsEnabled,
+		CreatedAt:         task.CreatedAt,
+		Fps:               task.Fps,
+		Crf:               task.Crf,
+		CustomCSS:         task.CustomCss,
+		FilenameTemplate:  task.FilenameTemplate,
+		TimeOverlay:       task.TimeOverlay,
+		TimeOverlayConfig: task.TimeOverlayConfig,
 	})
 }
 
@@ -472,7 +490,7 @@ func (h *Handler) StartTask(c echo.Context) error {
 	}
 
 	// 5. Start Worker
-	if err := h.Recorder.StartRecording(c.Request().Context(), taskID, task.TargetUrl, rec.ID, fullPath, task.CustomCss, task.Fps, task.Crf); err != nil {
+	if err := h.Recorder.StartRecording(c.Request().Context(), taskID, task.TargetUrl, rec.ID, fullPath, task.CustomCss, task.Fps, task.Crf, task.TimeOverlay, task.TimeOverlayConfig); err != nil {
 		// Update status to failed
 		_ = h.Queries.UpdateRecordingStatus(c.Request().Context(), database.UpdateRecordingStatusParams{
 			Status: "FAILED",

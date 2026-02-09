@@ -26,6 +26,7 @@ type Config struct {
 	TLSDomain         string
 	TLSEmail          string
 	TLSDataDir        string
+	NtpServer         string
 }
 
 func Load() *Config {
@@ -53,6 +54,7 @@ func Load() *Config {
 		TLSDomain:         getEnv("TLS_DOMAIN", ""),
 		TLSEmail:          getEnv("TLS_EMAIL", ""),
 		TLSDataDir:        getEnv("TLS_DATA_DIR", "/app/data/certs"),
+		NtpServer:         getEnv("NTP_SERVER", "ntp.nict.jp"),
 	}
 }
 

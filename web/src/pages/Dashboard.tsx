@@ -13,6 +13,9 @@ interface Task {
     filename_template: string
     custom_css: string
     fps: number
+    crf: number
+    time_overlay: boolean
+    time_overlay_config: string
 }
 
 export function Dashboard() {
@@ -22,7 +25,7 @@ export function Dashboard() {
     const queryClient = useQueryClient()
 
     const createMutation = useMutation({
-        mutationFn: async (newTask: { name: string, target_url: string, filename_template: string, custom_css: string, fps: number, crf: number }) => {
+        mutationFn: async (newTask: { [key: string]: any }) => {
             const res = await axios.post('/api/tasks', newTask)
             return res.data
         },
@@ -222,6 +225,8 @@ function TaskModal({ title, onClose, onSubmit, isPending, initialData }: {
     const [crf, setCrf] = React.useState((initialData as any)?.crf || 23)
     const [filenameTemplate, setFilenameTemplate] = React.useState(initialData?.filename_template || '')
     const [customCSS, setCustomCSS] = React.useState(initialData?.custom_css || '')
+    const [timeOverlay, setTimeOverlay] = React.useState(initialData?.time_overlay || false)
+    const [timeOverlayConfig, setTimeOverlayConfig] = React.useState(initialData?.time_overlay_config || 'bottom-right')
     const [previewImage, setPreviewImage] = React.useState<string | null>(null)
     const [isPreviewLoading, setIsPreviewLoading] = React.useState(false)
     const [previewError, setPreviewError] = React.useState<string | null>(null)
@@ -251,12 +256,21 @@ function TaskModal({ title, onClose, onSubmit, isPending, initialData }: {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
-        onSubmit({ name, target_url: url, filename_template: filenameTemplate, custom_css: customCSS, fps, crf })
+        onSubmit({
+            name,
+            target_url: url,
+            filename_template: filenameTemplate,
+            custom_css: customCSS,
+            fps,
+            crf,
+            time_overlay: timeOverlay,
+            time_overlay_config: timeOverlayConfig
+        })
     }
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh]">
                 <h3 className="text-xl font-bold mb-4">{title}</h3>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -365,6 +379,37 @@ function TaskModal({ title, onClose, onSubmit, isPending, initialData }: {
                                 />
                             </div>
                         )}
+                    </div>
+
+                    <div className="border-t border-gray-800 pt-4 mt-4">
+                        <h4 className="text-sm font-semibold mb-3 text-gray-300">Overlays</h4>
+                        <div className="flex flex-col gap-3">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={timeOverlay}
+                                    onChange={e => setTimeOverlay(e.target.checked)}
+                                    className="w-4 h-4 rounded border-gray-700 bg-gray-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900"
+                                />
+                                <span className="text-sm text-gray-300">Show Time Overlay (NTP Synchronized)</span>
+                            </label>
+
+                            {timeOverlay && (
+                                <div>
+                                    <label className="block text-sm text-gray-400 mb-1">Overlay Position</label>
+                                    <select
+                                        value={timeOverlayConfig}
+                                        onChange={e => setTimeOverlayConfig(e.target.value)}
+                                        className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white focus:border-blue-500 outline-none text-sm"
+                                    >
+                                        <option value="top-left">Top Left</option>
+                                        <option value="top-right">Top Right</option>
+                                        <option value="bottom-left">Bottom Left</option>
+                                        <option value="bottom-right">Bottom Right</option>
+                                    </select>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     <div className="flex justify-end gap-3 mt-6">

@@ -43,6 +43,7 @@ RUN mkdir -p /app/data/certs /app/recordings && \
 # Copy binary
 COPY --from=builder --chown=appuser:appuser /app/dashboard-recorder /app/server
 COPY --from=frontend-builder --chown=appuser:appuser /app/web/dist /app/web/dist
+COPY --chown=appuser:appuser db/migrations /app/db/migrations
 # Copy Playwright browsers (Chromium)
 COPY --from=builder --chown=appuser:appuser /app/pw-browsers /home/appuser/pw-browsers
 # Copy Playwright Driver

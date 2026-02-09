@@ -19,16 +19,18 @@ type Recording struct {
 }
 
 type Task struct {
-	ID               int64
-	Name             string
-	TargetUrl        string
-	IsEnabled        bool
-	IsDeleted        bool
-	FilenameTemplate string
-	CustomCss        string
-	Fps              int64
-	Crf              int64
-	CreatedAt        time.Time
+	ID                int64
+	Name              string
+	TargetUrl         string
+	IsEnabled         bool
+	IsDeleted         bool
+	FilenameTemplate  string
+	CustomCss         string
+	Fps               int64
+	Crf               int64
+	TimeOverlay       bool
+	TimeOverlayConfig string
+	CreatedAt         time.Time
 }
 
 type User struct {
