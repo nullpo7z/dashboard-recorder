@@ -678,12 +678,13 @@ func (h *Handler) PreviewTask(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "target_url is required"})
 	}
 
-	img, err := h.Recorder.CapturePreview(req.TargetURL, req.CustomCSS)
+	// Capture preview (returns JPEG bytes)
+	previewData, err := h.Recorder.CapturePreview(req.TargetURL, req.CustomCSS)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to capture preview: " + err.Error()})
 	}
 
-	return c.Blob(http.StatusOK, "video/mp4", img)
+	return c.Blob(http.StatusOK, "image/jpeg", previewData)
 }
 
 // WebSocket handler for interactive session

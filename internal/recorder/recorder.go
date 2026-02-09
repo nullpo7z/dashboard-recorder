@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"net"
+	"net/url"
+
 	"github.com/gorilla/websocket"
 	"github.com/nullpo7z/dashboard-recorder/internal/config"
 	"github.com/nullpo7z/dashboard-recorder/internal/database"
@@ -230,12 +233,20 @@ func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, 
 
 	// Inject Custom CSS if present
 	if customCSS != "" {
+		slog.Info("Injecting custom CSS",
+			"task_id", taskID,
+			"css_length", len(customCSS),
+		)
 		if _, err := page.AddStyleTag(playwright.PageAddStyleTagOptions{
 			Content: playwright.String(customCSS),
 		}); err != nil {
 			log.Printf("Failed to inject custom CSS for task %d: %v", taskID, err)
 			// Continue recording even if CSS fails
+		} else {
+			slog.Info("Custom CSS successfully injected", "task_id", taskID)
 		}
+	} else {
+		slog.Info("No custom CSS to inject", "task_id", taskID)
 	}
 
 	// Calculate JPEG quality based on CRF
@@ -364,8 +375,54 @@ func (w *Worker) GetLatestFrame(taskID int64) []byte {
 	return frameCopy
 }
 
-// CapturePreview records a 5-second, 5fps video of the target URL with optional custom CSS.
-func (w *Worker) CapturePreview(url, customCSS string) ([]byte, error) {
+// validateURL performs strict validation to prevent SSRF
+func validateURL(targetURL string) error {
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return fmt.Errorf("invalid url format")
+	}
+
+	// 1. Check Protocol
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("invalid protocol: %s", u.Scheme)
+	}
+
+	// 2. Resolve Hostname
+	hostname := u.Hostname()
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hostname: %w", err)
+	}
+
+	// 3. Check IP Addresses
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() {
+			return fmt.Errorf("access to private IP %s is denied", ip.String())
+		}
+	}
+
+	return nil
+}
+
+// CapturePreview captures a single JPEG screenshot of the target URL with optional custom CSS.
+// It includes strict URL validation and timeouts.
+func (w *Worker) CapturePreview(targetURL, customCSS string) ([]byte, error) {
+	// 1. SSRF Protect
+	if err := validateURL(targetURL); err != nil {
+		return nil, fmt.Errorf("security check failed: %w", err)
+	}
+
+	// 2. Setup Context with Timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 3. Launch Browser Context (Incognito)
+	// We use the context for the browser context creation if the library supported it,
+	// but playwright-go's NewContext doesn't take a context.Context.
+	// However, we should respect the timeout for the overall operation.
+	// Since NewContext is fast, we just proceed.
+	// We will use the context for the page navigation if possible, or just rely on the defer cancel.
+
 	bCtx, err := w.browser.NewContext(playwright.BrowserNewContextOptions{
 		Viewport:          &playwright.Size{Width: 1280, Height: 720},
 		BypassCSP:         playwright.Bool(true),
@@ -381,92 +438,50 @@ func (w *Worker) CapturePreview(url, customCSS string) ([]byte, error) {
 		return nil, err
 	}
 
-	// Navigate with timeout
-	if _, err := page.Goto(url, playwright.PageGotoOptions{
+	// 4. Navigate
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if _, err := page.Goto(targetURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateNetworkidle,
-		Timeout:   playwright.Float(30000),
+		Timeout:   playwright.Float(20000), // 20s navigation timeout
 	}); err != nil {
 		return nil, fmt.Errorf("nav failed: %w", err)
 	}
 
-	// Inject CSS
+	// 5. Inject CSS
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if customCSS != "" {
+		slog.Info("Injecting custom CSS for preview",
+			"url", targetURL,
+			"css_length", len(customCSS),
+		)
 		if _, err := page.AddStyleTag(playwright.PageAddStyleTagOptions{
 			Content: playwright.String(customCSS),
 		}); err != nil {
 			return nil, fmt.Errorf("css injection failed: %w", err)
+		} else {
+			slog.Info("Custom CSS successfully injected for preview")
 		}
 	}
 
-	// Prepare temp file for output
-	tmpFile := fmt.Sprintf("/tmp/preview_%d.mp4", time.Now().UnixNano())
-	defer os.Remove(tmpFile)
-
-	// Start FFmpeg
-	// Input: mjpeg stream from stdin at 5 fps
-	// Output: mp4 file
-	ffmpegCmd := exec.Command("ffmpeg",
-		"-y",
-		"-f", "image2pipe",
-		"-vcodec", "mjpeg",
-		"-r", "5", // Input FPS
-		"-i", "-",
-		"-c:v", "libx264",
-		"-pix_fmt", "yuv420p",
-		"-preset", "ultrafast",
-		"-r", "5", // Output FPS
-		tmpFile,
-	)
-
-	stdin, err := ffmpegCmd.StdinPipe()
+	// 6. Capture Screenshot
+	// We use a high quality JPEG for preview
+	screenshot, err := page.Screenshot(playwright.PageScreenshotOptions{
+		Type:    playwright.ScreenshotTypeJpeg,
+		Quality: playwright.Int(80),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("ffmpeg stdin failed: %w", err)
+		return nil, fmt.Errorf("screenshot failed: %w", err)
 	}
 
-	if err := ffmpegCmd.Start(); err != nil {
-		return nil, fmt.Errorf("ffmpeg start failed: %w", err)
+	if len(screenshot) == 0 {
+		return nil, fmt.Errorf("captured empty screenshot")
 	}
 
-	// Capture loop: 5 seconds @ 5 fps = 25 frames
-	// Interval = 200ms
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	frameCount := 0
-	maxFrames := 25 // 5 seconds * 5 fps
-
-	for frameCount < maxFrames {
-		<-ticker.C
-		screenshot, err := page.Screenshot(playwright.PageScreenshotOptions{
-			Type:    playwright.ScreenshotTypeJpeg,
-			Quality: playwright.Int(70), // Lower quality for speed
-		})
-		if err != nil {
-			log.Printf("preview screenshot failed: %v", err)
-			continue
-		}
-		if _, err := stdin.Write(screenshot); err != nil {
-			log.Printf("ffmpeg write failed: %v", err)
-			break
-		}
-		frameCount++
-	}
-
-	// Close stdin to finish encoding
-	stdin.Close()
-
-	// Wait for FFmpeg
-	if err := ffmpegCmd.Wait(); err != nil {
-		return nil, fmt.Errorf("ffmpeg wait failed: %w", err)
-	}
-
-	// Read result
-	data, err := os.ReadFile(tmpFile)
-	if err != nil {
-		return nil, fmt.Errorf("read preview file failed: %w", err)
-	}
-
-	return data, nil
+	return screenshot, nil
 }
 
 // Interactive Event Types

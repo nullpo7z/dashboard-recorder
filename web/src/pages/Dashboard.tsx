@@ -358,13 +358,10 @@ function TaskModal({ title, onClose, onSubmit, isPending, initialData }: {
 
                         {previewImage && (
                             <div className="mt-2 border border-gray-700 rounded overflow-hidden">
-                                <video
+                                <img
                                     src={previewImage}
-                                    className="w-full h-auto"
-                                    controls
-                                    autoPlay
-                                    loop
-                                    muted
+                                    className="w-full h-auto object-contain"
+                                    alt="CSS Preview"
                                 />
                             </div>
                         )}
