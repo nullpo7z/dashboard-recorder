@@ -233,20 +233,12 @@ func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, 
 
 	// Inject Custom CSS if present
 	if customCSS != "" {
-		slog.Info("Injecting custom CSS",
-			"task_id", taskID,
-			"css_length", len(customCSS),
-		)
 		if _, err := page.AddStyleTag(playwright.PageAddStyleTagOptions{
 			Content: playwright.String(customCSS),
 		}); err != nil {
 			log.Printf("Failed to inject custom CSS for task %d: %v", taskID, err)
 			// Continue recording even if CSS fails
-		} else {
-			slog.Info("Custom CSS successfully injected", "task_id", taskID)
 		}
-	} else {
-		slog.Info("No custom CSS to inject", "task_id", taskID)
 	}
 
 	// Calculate JPEG quality based on CRF
@@ -454,16 +446,10 @@ func (w *Worker) CapturePreview(targetURL, customCSS string) ([]byte, error) {
 		return nil, ctx.Err()
 	}
 	if customCSS != "" {
-		slog.Info("Injecting custom CSS for preview",
-			"url", targetURL,
-			"css_length", len(customCSS),
-		)
 		if _, err := page.AddStyleTag(playwright.PageAddStyleTagOptions{
 			Content: playwright.String(customCSS),
 		}); err != nil {
 			return nil, fmt.Errorf("css injection failed: %w", err)
-		} else {
-			slog.Info("Custom CSS successfully injected for preview")
 		}
 	}
 
