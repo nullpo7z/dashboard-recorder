@@ -18,6 +18,16 @@ import (
 	"golang.org/x/exp/slog"
 )
 
+const (
+	// DefaultJpegQuality is the fallback quality if calculation fails
+	DefaultJpegQuality = 70
+	// MaxJpegQuality Caps the maximum JPEG quality to prevent resource exhaustion (DoS)
+	// Pure lossless (100) can cause massive file sizes.
+	MaxJpegQuality = 95
+	// MinJpegQuality ensures the image is still somewhat recognizable
+	MinJpegQuality = 30
+)
+
 type Worker struct {
 	pw      *playwright.Playwright
 	browser playwright.Browser
@@ -228,6 +238,14 @@ func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, 
 		}
 	}
 
+	// Calculate JPEG quality based on CRF
+	jpegQuality := calculateJpegQuality(crf)
+	slog.Info("Starting recording loop",
+		"task_id", taskID,
+		"crf", crf,
+		"jpeg_quality", jpegQuality,
+	)
+
 	// Start FFmpeg
 	// Using "ultrafast" and configurable CRF for cpu/quality balance
 	// Use exec.Command instead of CommandContext so context cancellation doesn't kill it immediately
@@ -294,7 +312,7 @@ func (w *Worker) recordLoop(ctx context.Context, taskID int64, url, outputPath, 
 			// Capture
 			buf, err := page.Screenshot(playwright.PageScreenshotOptions{
 				Type:    playwright.ScreenshotTypeJpeg,
-				Quality: playwright.Int(70),
+				Quality: playwright.Int(jpegQuality),
 			})
 			if err != nil {
 				log.Printf("screenshot error: %v", err)
@@ -560,4 +578,37 @@ func (w *Worker) HandleInteractive(ctx context.Context, taskID int64, url string
 			return nil // Exit session loop, triggering defer conn.Close()
 		}
 	}
+}
+
+// calculateJpegQuality determines the JPEG quality (0-100) based on the CRF value (0-51).
+// Lower CRF means higher quality.
+// The formula is roughly: Quality = 100 - (CRF / 2).
+// We cap the quality at MaxJpegQuality (95) to prevent DoS via massive file sizes.
+func calculateJpegQuality(crf int64) int {
+	// 1. Sanitize Input
+	if crf < 0 {
+		crf = 0 // Treat negative as 0 (highest quality)
+	}
+	if crf > 51 {
+		crf = 51 // Clamp to max valid CRF
+	}
+
+	// 2. Calculate Quality
+	// CRF 0 -> 100
+	// CRF 23 -> ~88
+	// CRF 51 -> ~74
+	// usage of float to ensure better precision before casting back
+	quality := 100 - (float64(crf) / 2.0)
+
+	// 3. Apply Constraints
+	qInt := int(quality)
+
+	if qInt > MaxJpegQuality {
+		qInt = MaxJpegQuality
+	}
+	if qInt < MinJpegQuality {
+		qInt = MinJpegQuality
+	}
+
+	return qInt
 }
